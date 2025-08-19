@@ -9,7 +9,7 @@ main(int argc, char *  argv[])
 	a = UxHwDoubleUniformDist(0.5, 1.0);
 	printf("a = %lf\n", a);
 
-	b = UxHwDoubleUniformDist(10.0, 20.0);
+	b = UxHwDoubleUniformDist(0, 10);
 	printf("b = %lf\n", b);
 
 	c = (a+b)/(a-b);
