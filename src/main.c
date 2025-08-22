@@ -419,24 +419,21 @@ main(int argc, char *   argv[])
 		}
 	}
 
-	FILE *	f = fopen("image.ppm", "w");
+    printf("P3\n%d %d\n%d\n", width, height, 255);
 
-	fprintf(f, "P3\n%d %d\n%d\n", width, height, 255);
+    int ii;
+    for (ii = 0; ii < width * height; ii++)
+    {
+        printf("%d %d %d\n",
+            toInt(c[ii].x),
+            toInt(c[ii].y),
+            toInt(c[ii].z));
+    }
 
-	int		ii;
-
-	for (ii = 0; ii < width * height; ii++)
-	{
-		fprintf(f, "%d %d %d ",
-			toInt(c[ii].x),
-			toInt(c[ii].y),
-			toInt(c[ii].z));
-	}
-
-	free(c);
-
-	return 0;
+    free(c);
+    return 0;
 }
+
 
 
 
