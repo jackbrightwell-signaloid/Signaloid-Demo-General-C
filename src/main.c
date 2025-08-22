@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include <uxhw.h>
 
 /*
  *	Vec struct and operations
@@ -195,25 +194,6 @@ static inline double
 rnd(unsigned short *  Xi)
 {
 	return erand48(Xi);
-}
-
-/*
- *	Define Signaloid distributional max and min.
- */
-double
-maxSignaloid(double firstValue, double secondValue)
-{
-	double probabilityFirstValueGreater = UxHwDoubleProbabilityGT(firstValue - secondValue, 0.0);
-
-	return UxHwDoubleMixture(firstValue, secondValue, probabilityFirstValueGreater);
-}
-
-double
-minSignaloid(double firstValue, double secondValue)
-{
-	double probabilityFirstValueLess = 1.0 - UxHwDoubleProbabilityGT(firstValue - secondValue, 0.0);
-
-	return UxHwDoubleMixture(firstValue, secondValue, probabilityFirstValueLess);
 }
 
 /*
@@ -419,22 +399,21 @@ main(int argc, char *   argv[])
 		}
 	}
 
-    printf("P3\n%d %d\n%d\n", width, height, 255);
+	FILE *	f = fopen("mountDir/image.ppm", "w");
 
-    int ii;
-    for (ii = 0; ii < width * height; ii++)
-    {
-        printf("%d %d %d\n",
-            toInt(c[ii].x),
-            toInt(c[ii].y),
-            toInt(c[ii].z));
-    }
+	fprintf(f, "P3\n%d %d\n%d\n", width, height, 255);
 
-    free(c);
-    return 0;
+	int		ii;
+
+	for (ii = 0; ii < width * height; ii++)
+	{
+		fprintf(f, "%d %d %d ",
+			toInt(c[ii].x),
+			toInt(c[ii].y),
+			toInt(c[ii].z));
+	}
+
+	free(c);
+
+	return 0;
 }
-
-
-
-
-
