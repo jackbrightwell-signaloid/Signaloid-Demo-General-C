@@ -1,7 +1,8 @@
 /*
  *	Adapted smallpt to jitter the colour of any surface uniformly
  *	within ±0.05 of fixed RGB value (i.e. known to 1dp) and to 
- *	jitter the intensity of the light source by ±2% for each ray
+ *	jitter the intensity of the light source by ±2% for each ray.
+ *  This version only jitters the walls and ceilings.
  */
 
 #include <math.h>
@@ -218,7 +219,7 @@ jitterLight(Vec c, unsigned short *  Xi)
 }
 
 /*
- *	Radiance
+ *  Radiance
  */
 Vec
 radiance(Ray r, int depth, unsigned short *  Xi)
@@ -235,10 +236,21 @@ radiance(Ray r, int depth, unsigned short *  Xi)
 	Vec		x = vecAdd(r.origin, vecScale(r.direction, t));
 	Vec		n = vecNorm(vecSub(x, obj->position));
 	Vec		nl = vecDot(n, r.direction) < 0 ? n : vecScale(n, -1);
-	Vec		f = jitterColour(obj->colour, Xi);
 
 	/*
-	 *	Emission (apply light jitter only for designated light source - i.e. last sphere)
+	 *	Surface colour:
+	 *	- Diffuse: apply jitter
+	 *	- Specular/Refractive/Light: no jitter
+	 */
+	Vec		f = obj->colour;
+	if (obj->refl == kReflDiff)
+	{
+		f = jitterColour(f, Xi);
+	}
+
+	/*
+	 *	Emission:
+	 *	- Apply jitter only for designated light source
 	 */
 	Vec		emission = obj->emission;
 	if (id == (sizeof(spheres) / sizeof(Sphere)) - 1)
@@ -263,6 +275,9 @@ radiance(Ray r, int depth, unsigned short *  Xi)
 		}
 	}
 
+	/*
+	 *	Reflection models
+	 */
 	if (obj->refl == kReflDiff)
 	{
 		double		r1 = 2 * M_PI * rnd(Xi);
