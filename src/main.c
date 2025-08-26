@@ -246,7 +246,7 @@ radiance(Ray r, int depth, unsigned short *  Xi)
 	Vec		f = obj->colour;
 	if (obj->refl == kReflDiff)
 	{
-		f = jitterColour(f, Xi);
+		f = jitterColour(f);
 	}
 
 	/*
