@@ -1,14 +1,15 @@
 /*
- *	Adapted smallpt to jitter the colour of any surface uniformly
- *	within ±0.05 of fixed RGB value (i.e. known to 1dp) and to 
- *	jitter the intensity of the light source by ±2% for each ray.
- *  This version only jitters the walls and ceilings.
+ *	Adapted smallpt to jitter the colour of any walls and 
+ *  ceilings uniformly within ±0.05 of fixed RGB value (i.e. 
+ *  known to 1dp) using UxHw. The intensity of the light source 
+ *  is jittered by ±2% for each ray using standard Monte Carlo.
  */
 
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <uxhw.h>
 
 /*
  *	Vec struct and operations
@@ -198,15 +199,15 @@ rnd(unsigned short *  Xi)
 }
 
 /*
- *	Apply colour jitter ±0.05, clamped
+ *	Apply colour jitter using UxHw uniform within ±0.05
  */
 static inline Vec
-jitterColour(Vec c, unsigned short *  Xi)
+jitterColour(Vec c)
 {
 	return vecNew(
-		clamp(c.x + (rnd(Xi) * 0.1 - 0.05)),
-		clamp(c.y + (rnd(Xi) * 0.1 - 0.05)),
-		clamp(c.z + (rnd(Xi) * 0.1 - 0.05)));
+		c.x + UxHwDoubleUniformDist(-0.05,0.05),
+		c.y + UxHwDoubleUniformDist(-0.05,0.05),
+		c.z + UxHwDoubleUniformDist(-0.05,0.05));
 }
 
 /*
@@ -215,7 +216,7 @@ jitterColour(Vec c, unsigned short *  Xi)
 static inline Vec
 jitterLight(Vec c, unsigned short *  Xi)
 {
-	return vecScale(c, 1.0 + (rnd(Xi) * 0.04 - 0.02));	/* ±2% */
+	return vecScale(c, 1.0 + (rnd(Xi) * 0.04 - 0.02));
 }
 
 /*
