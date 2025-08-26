@@ -373,49 +373,60 @@ main(int argc, char *argv[])
 {
     int width = 1024;
     int height = 768;
-    int samples = (argc == 2) ? atoi(argv[1]) / 4 : 1;
+
+    // Parse CLI: first positive integer = requested spp; -p/--preview toggles preview
+    int requested_spp = 4; // default = 1 sample per subpixel -> 4 spp total (matches original)
+    bool preview = false;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--preview") == 0 || strcmp(argv[i], "-p") == 0) {
+            preview = true;
+            continue;
+        }
+        char *endp = NULL;
+        long v = strtol(argv[i], &endp, 10);
+        if (endp && *endp == '\0' && v > 0) {
+            requested_spp = (int)v;
+        }
+    }
+
+    // Convert spp (total) -> samples per subpixel (original smallpt semantics)
+    int samples = requested_spp / 4;
+    if (samples < 1) samples = 1;
+    int actual_spp = samples * 4; // what we’ll really render
 
     Ray cam = {vecNew(50, 52, 295.6), vecNorm(vecNew(0, -0.042612, -1))};
     Vec cx = vecNew(width * .5135 / height, 0, 0);
     Vec cy = vecScale(vecNorm(vecCross(cx, cam.direction)), .5135);
     Vec *c = calloc(width * height, sizeof(Vec));
 
-    // Command line preview toggle
-    bool preview = false;
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--preview") == 0 || strcmp(argv[i], "-p") == 0) {
-            preview = true;
-        }
-    }
-
+    // Region selection
     int startX, endX, startY, endY;
-
     if (preview) {
-        int regionSize = 512;                     // square window
-        startX = (width  - regionSize) / 2;       // centered horizontally
+        const int regionSize = 512; // square
+        startX = (width  - regionSize) / 2;        // centered horizontally
+        startY = ((height - regionSize) / 2) +     // centered vertically
+                 (regionSize / 2);                 // then shift DOWN by 50% of square height
         endX   = startX + regionSize;
-
-        startY = (height / 2) - (regionSize / 2); // shift down by 50% of square height
         endY   = startY + regionSize;
 
-        if (endY > height) { // clamp if too low
-            endY = height;
-            startY = endY - regionSize;
-        }
+        // Clamp to image while preserving square
+        if (startX < 0) { startX = 0; endX = regionSize; }
+        if (endX > width) { endX = width; startX = endX - regionSize; }
+        if (startY < 0) { startY = 0; endY = regionSize; }
+        if (endY > height) { endY = height; startY = endY - regionSize; }
     } else {
-        startX = 0;
-        endX   = width;
-        startY = 0;
-        endY   = height;
+        startX = 0; endX = width;
+        startY = 0; endY = height;
     }
 
     initJitter();
 
     #pragma omp parallel for schedule(dynamic,1)
     for (int yy = startY; yy < endY; yy++) {
-        fprintf(stderr, "\rRendering %d spp %5.2f%%",
-            samples * 4,
-            100. * (yy - startY) / (endY - startY - 1));
+        fprintf(stderr, "\rRendering %s %d spp %5.2f%%",
+                preview ? "preview" : "full",
+                actual_spp,
+                100.0 * (yy - startY) / (endY - startY - 1));
         unsigned short Xi[3] = {0, 0, (unsigned short)(yy * yy * yy)};
 
         for (int xx = startX; xx < endX; xx++) {
@@ -431,11 +442,13 @@ main(int argc, char *argv[])
                         double dx = r1 < 1 ? sqrt(r1) - 1 : 1 - sqrt(2 - r1);
                         double r2 = 2 * rnd(Xi);
                         double dy = r2 < 1 ? sqrt(r2) - 1 : 1 - sqrt(2 - r2);
+
                         Vec d = vecAdd(
                             vecAdd(
                                 vecScale(cx, ((sx + .5 + dx) / 2 + xx) / width - .5),
                                 vecScale(cy, ((sy + .5 + dy) / 2 + yy) / height - .5)),
                             cam.direction);
+
                         Ray ray = {vecAdd(cam.origin, vecScale(d, 140)), vecNorm(d)};
                         Vec rad = radiance(ray, 0, Xi);
                         sub = vecAdd(sub, vecScale(rad, 1.0 / samples));
@@ -444,21 +457,18 @@ main(int argc, char *argv[])
                     r = vecAdd(r, vecScale(vecNew(clamp(sub.x), clamp(sub.y), clamp(sub.z)), .25));
                 }
             }
-
             c[ii] = r;
         }
     }
 
     FILE *f = fopen("mountDir/image.ppm", "w");
     fprintf(f, "P3\n%d %d\n%d\n", width, height, 255);
-
     for (int i = 0; i < width * height; i++) {
         fprintf(f, "%d %d %d ",
             toInt(c[i].x),
             toInt(c[i].y),
             toInt(c[i].z));
     }
-
     free(c);
     return 0;
 }
