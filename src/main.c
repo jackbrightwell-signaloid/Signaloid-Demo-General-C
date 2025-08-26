@@ -380,7 +380,7 @@ main(int argc, char *   argv[])
 	int		yy;
 	int		xx;
 
-	initjitter();
+	initJitter();
 
 	#pragma omp parallel for schedule(dynamic,1)
 	for (yy = 0; yy < height; yy++)
