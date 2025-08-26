@@ -374,8 +374,8 @@ main(int argc, char *argv[])
     int width = 1024;
     int height = 768;
 
-    // Parse CLI: first positive integer = requested spp; -p/--preview toggles preview
-    int requested_spp = 4; // default = 1 sample per subpixel -> 4 spp total (matches original)
+    // Parse CLI
+    int requested_spp = 4; // default total spp = 4 (original smallpt default: 1 sample/subpixel)
     bool preview = false;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--preview") == 0 || strcmp(argv[i], "-p") == 0) {
@@ -389,31 +389,35 @@ main(int argc, char *argv[])
         }
     }
 
-    // Convert spp (total) -> samples per subpixel (original smallpt semantics)
+    // Convert total spp → samples per subpixel
     int samples = requested_spp / 4;
     if (samples < 1) samples = 1;
-    int actual_spp = samples * 4; // what we’ll really render
+    int actual_spp = samples * 4;
 
     Ray cam = {vecNew(50, 52, 295.6), vecNorm(vecNew(0, -0.042612, -1))};
     Vec cx = vecNew(width * .5135 / height, 0, 0);
     Vec cy = vecScale(vecNorm(vecCross(cx, cam.direction)), .5135);
     Vec *c = calloc(width * height, sizeof(Vec));
 
-    // Region selection
+    // Select region
     int startX, endX, startY, endY;
     if (preview) {
         const int regionSize = 512; // square
-        startX = (width  - regionSize) / 2;        // centered horizontally
-        startY = ((height - regionSize) / 2) +     // centered vertically
-                 (regionSize / 2);                 // then shift DOWN by 50% of square height
+
+        startX = (width  - regionSize) / 2;                      // centered horizontally
+        startY = (height - regionSize) / 2 + (regionSize / 2);   // centered vertically + shifted DOWN
         endX   = startX + regionSize;
         endY   = startY + regionSize;
 
-        // Clamp to image while preserving square
-        if (startX < 0) { startX = 0; endX = regionSize; }
-        if (endX > width) { endX = width; startX = endX - regionSize; }
-        if (startY < 0) { startY = 0; endY = regionSize; }
-        if (endY > height) { endY = height; startY = endY - regionSize; }
+        // Clamp to image bounds while preserving square
+        if (endY > height) {
+            endY = height;
+            startY = endY - regionSize;
+        }
+        if (endX > width) {
+            endX = width;
+            startX = endX - regionSize;
+        }
     } else {
         startX = 0; endX = width;
         startY = 0; endY = height;
