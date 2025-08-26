@@ -368,93 +368,95 @@ radiance(Ray r, int depth, unsigned short *  Xi)
 /*
  *	Main
  */
-int 
+int
 main(int argc, char *argv[])
 {
-    int width = 1024;
-    int height = 768;
-    int samples = (argc >= 2) ? atoi(argv[1]) / 4 : 1;
+	int		width = 1024;
+	int		height = 768;
+	int		samples = (argc >= 2) ? atoi(argv[1]) / 4 : 1;
+	bool		preview = (argc >= 3 && 
+				    (strcmp(argv[2], "--preview") == 0 || 
+				     strcmp(argv[2], "-p") == 0));
 
-    // Preview toggle
-    bool preview = false;
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--preview") == 0 || strcmp(argv[i], "-p") == 0) {
-            preview = true;
-        }
-    }
+	// Preview crops: render only the central quarter of the image
+	int startY = 0, endY = height;
+	int startX = 0, endX = width;
+	if (preview)
+	{
+		startY = height / 4;
+		endY   = 3 * height / 4;
+		startX = width / 4;
+		endX   = 3 * width / 4;
+	}
 
-    // Determine central window
-    int startX = 0, startY = 0, endX = width, endY = height;
-    if (preview) {
-        int w = width / 4;
-        int h = height / 4;
-        startX = width / 2 - w / 2;
-        startY = height / 2 - h / 2;
-        endX   = startX + w;
-        endY   = startY + h;
-        samples = 1; // quick preview
-    }
+	Ray		cam = {vecNew(50, 52, 295.6), vecNorm(vecNew(0, -0.042612, -1))};
+	Vec		cx = vecNew(width * .5135 / height, 0, 0);
+	Vec		cy = vecScale(vecNorm(vecCross(cx, cam.direction)), .5135);
+	Vec *		c = calloc(width * height, sizeof(Vec));
 
-    Ray cam = {vecNew(50, 52, 295.6), vecNorm(vecNew(0, -0.042612, -1))};
-    Vec cx = vecNew(width * .5135 / height, 0, 0);
-    Vec cy = vecScale(vecNorm(vecCross(cx, cam.direction)), .5135);
-    Vec *c = calloc(width * height, sizeof(Vec)); // full resolution
+	initJitter();
 
-    initJitter();
+	#pragma omp parallel for schedule(dynamic,1)
+	for (int yy = startY; yy < endY; yy++)
+	{
+		fprintf(stderr, "\rRendering %d spp %5.2f%%", samples * 4,
+		        100. * (yy - startY) / (endY - startY - 1));
+		unsigned short	Xi[3] = {0, 0, (unsigned short)(yy * yy * yy)};
 
-    #pragma omp parallel for schedule(dynamic,1)
-    for (int yy = startY; yy < endY; yy++) {
-        fprintf(stderr, "\rRendering %s %5.2f%%", 
-                preview ? "preview" : "full image", 
-                100.0 * (yy - startY) / (endY - startY - 1));
+		for (int xx = startX; xx < endX; xx++)
+		{
+			int		ii = (height - yy - 1) * width + xx;
+			Vec		r = vecNew(0, 0, 0);
 
-        unsigned short Xi[3] = {0, 0, (unsigned short)(yy * yy * yy)};
+			for (int sy = 0; sy < 2; sy++)
+			{
+				for (int sx = 0; sx < 2; sx++)
+				{
+					Vec		sub = vecNew(0, 0, 0);
 
-        for (int xx = startX; xx < endX; xx++) {
-            int ii = (height - yy - 1) * width + xx;
-            Vec r = vecNew(0, 0, 0);
+					for (int ss = 0; ss < samples; ss++)
+					{
+						double		r1 = 2 * rnd(Xi);
+						double		dx = r1 < 1 ? sqrt(r1) - 1 : 1 - sqrt(2 - r1);
+						double		r2 = 2 * rnd(Xi);
+						double		dy = r2 < 1 ? sqrt(r2) - 1 : 1 - sqrt(2 - r2);
+						Vec		d = vecAdd(
+								vecAdd(
+									vecScale(cx, ((sx + .5 + dx) / 2 + xx) / width - .5),
+									vecScale(cy, ((sy + .5 + dy) / 2 + yy) / height - .5)),
+								cam.direction);
+						Ray		ray = {vecAdd(cam.origin, vecScale(d, 140)), vecNorm(d)};
+						Vec		rad = radiance(ray, 0, Xi);
 
-            for (int sy = 0; sy < 2; sy++) {
-                for (int sx = 0; sx < 2; sx++) {
-                    Vec sub = vecNew(0, 0, 0);
-                    for (int ss = 0; ss < samples; ss++) {
-                        double r1 = 2 * rnd(Xi);
-                        double dx = r1 < 1 ? sqrt(r1) - 1 : 1 - sqrt(2 - r1);
-                        double r2 = 2 * rnd(Xi);
-                        double dy = r2 < 1 ? sqrt(r2) - 1 : 1 - sqrt(2 - r2);
+						// Apply small light jitter only if hitting light
+						if (ii == width * height - 1)
+						{
+							rad = jitterLight(rad, Xi);
+						}
 
-                        Vec d = vecAdd(
-                            vecAdd(
-                                vecScale(cx, ((sx + .5 + dx) / 2 + xx) / width - .5),
-                                vecScale(cy, ((sy + .5 + dy) / 2 + yy) / height - .5)),
-                            cam.direction);
+						sub = vecAdd(sub, vecScale(rad, 1.0 / samples));
+					}
 
-                        Ray ray = {vecAdd(cam.origin, vecScale(d, 140)), vecNorm(d)};
-                        Vec rad = radiance(ray, 0, Xi);
+					r = vecAdd(r, vecScale(vecNew(clamp(sub.x), clamp(sub.y), clamp(sub.z)), .25));
+				}
+			}
 
-                        // small light jitter at last pixel
-                        if (ii == width * height - 1) {
-                            rad = jitterLight(rad, Xi);
-                        }
+			c[ii] = r;
+		}
+	}
 
-                        sub = vecAdd(sub, vecScale(rad, 1.0 / samples));
-                    }
-                    r = vecAdd(r, vecScale(vecNew(clamp(sub.x), clamp(sub.y), clamp(sub.z)), .25));
-                }
-            }
-            c[ii] = r;
-        }
-    }
+	FILE *	f = fopen("mountDir/image.ppm", "w");
+	fprintf(f, "P3\n%d %d\n%d\n", width, height, 255);
 
-    FILE *f = fopen("mountDir/image.ppm", "w");
-    fprintf(f, "P3\n%d %d\n%d\n", width, height, 255);
-    for (int ii = 0; ii < width * height; ii++) {
-        fprintf(f, "%d %d %d ",
-                toInt(c[ii].x),
-                toInt(c[ii].y),
-                toInt(c[ii].z));
-    }
-    free(c);
-    return 0;
+	for (int ii = 0; ii < width * height; ii++)
+	{
+		fprintf(f, "%d %d %d ",
+			toInt(c[ii].x),
+			toInt(c[ii].y),
+			toInt(c[ii].z));
+	}
 
+	free(c);
+
+	return 0;
 }
