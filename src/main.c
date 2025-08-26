@@ -201,17 +201,31 @@ rnd(unsigned short *  Xi)
 /*
  *	Apply colour jitter using UxHw uniform within ±0.05
  */
-static double jitterX = UxHwDoubleUniformDist(-0.05, 0.05);
-static double jitterY = UxHwDoubleUniformDist(-0.05, 0.05);
-static double jitterZ = UxHwDoubleUniformDist(-0.05, 0.05);
+static double jitterR[sizeof(spheres)/sizeof(Sphere)];
+static double jitterG[sizeof(spheres)/sizeof(Sphere)];
+static double jitterB[sizeof(spheres)/sizeof(Sphere)];
+
+static inline void
+initJitter()
+{
+    int n = sizeof(spheres) / sizeof(Sphere);
+    for (int i = 0; i < n; i++) {
+        if (spheres[i].refl == kReflDiff) {
+            jitterR[i] = UxHwDoubleUniformDist(-0.05, 0.05);
+            jitterG[i] = UxHwDoubleUniformDist(-0.05, 0.05);
+            jitterB[i] = UxHwDoubleUniformDist(-0.05, 0.05);
+        } else {
+            jitterR[i] = jitterG[i] = jitterB[i] = 0.0; // no jitter
+        }
+    }
+}
 
 static inline Vec
-jitterColour(Vec c)
+jitterColour(Vec c, int id)
 {
-	return vecNew(
-		c.x + jitterX,
-		c.y + jitterY,
-		c.z + jitterZ);
+    return vecNew(c.x + jitterR[id],
+                  c.y + jitterG[id],
+                  c.z + jitterB[id]);
 }
 
 /*
@@ -250,7 +264,7 @@ radiance(Ray r, int depth, unsigned short *  Xi)
 	Vec		f = obj->colour;
 	if (obj->refl == kReflDiff)
 	{
-		f = jitterColour(f);
+		f = jitterColour(f, id);
 	}
 
 	/*
@@ -365,6 +379,8 @@ main(int argc, char *   argv[])
 	Vec *		c = calloc(width * height, sizeof(Vec));
 	int		yy;
 	int		xx;
+
+	initjitter();
 
 	#pragma omp parallel for schedule(dynamic,1)
 	for (yy = 0; yy < height; yy++)
