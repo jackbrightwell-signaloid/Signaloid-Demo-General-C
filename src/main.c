@@ -456,7 +456,7 @@ main(int argc, char *argv[])
     }
     free(c);
     return 0;
-}
+
 
 
 	FILE *	f = fopen("mountDir/image.ppm", "w");
