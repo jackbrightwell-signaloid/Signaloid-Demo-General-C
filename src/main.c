@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <uxhw.h>
+#include <string.h>
 
 /*
  *	Vec struct and operations
