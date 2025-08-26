@@ -201,13 +201,17 @@ rnd(unsigned short *  Xi)
 /*
  *	Apply colour jitter using UxHw uniform within ±0.05
  */
+static double jitterX = UxHwDoubleUniformDist(-0.05, 0.05);
+static double jitterY = UxHwDoubleUniformDist(-0.05, 0.05);
+static double jitterZ = UxHwDoubleUniformDist(-0.05, 0.05);
+
 static inline Vec
 jitterColour(Vec c)
 {
 	return vecNew(
-		c.x + UxHwDoubleUniformDist(-0.05,0.05),
-		c.y + UxHwDoubleUniformDist(-0.05,0.05),
-		c.z + UxHwDoubleUniformDist(-0.05,0.05));
+		c.x + jitterX,
+		c.y + jitterY,
+		c.z + jitterZ);
 }
 
 /*
