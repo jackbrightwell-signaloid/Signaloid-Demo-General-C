@@ -270,8 +270,7 @@ jitterLight(
  *	Radiance - core path tracing function, returns RGB radiance 
  *	along ray recursively.
  */
-Vec
-radiance(Ray r, int depth, unsigned short *Xi)
+Vec radiance(Ray r, int depth, unsigned short *Xi)
 {
     double t;
     int id = 0;
@@ -300,7 +299,7 @@ radiance(Ray r, int depth, unsigned short *Xi)
         f.z = UxHwDoubleNthMoment(f.z, 1);
     }
 
-    // Russian roulette
+    // Russian roulette termination
     double p = f.x > f.y && f.x > f.z ? f.x : (f.y > f.z ? f.y : f.z);
     if (++depth > 5) {
         if (rnd(Xi) < p) f = vecScale(f, 1/p);
@@ -352,6 +351,7 @@ radiance(Ray r, int depth, unsigned short *Xi)
                     vecAdd(vecScale(radiance(reflRay,depth,Xi),Re),
                            vecScale(radiance((Ray){x,tdir},depth,Xi),Tr))));
 }
+
 
 
 
