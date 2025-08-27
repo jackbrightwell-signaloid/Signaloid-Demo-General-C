@@ -1,8 +1,6 @@
 /*
- *	Adapted smallpt to jitter the colour of any walls and 
- *  ceilings uniformly within ±0.05 of fixed RGB value (i.e. 
- *  known to 1dp) using UxHw. The intensity of the light source 
- *  is jittered by ±2% for each ray using standard Monte Carlo.
+ *	Adapted smallpt to jitter the colour of walls and ceilings
+ *	uniformly within ±0.05 using UxHw, with ±2% light jitter
  */
 
 #include <math.h>
@@ -72,7 +70,8 @@ vecCross(Vec a, Vec b)
 	return vecNew(
 		a.y * b.z - a.z * b.y,
 		a.z * b.x - a.x * b.z,
-		a.x * b.y - a.y * b.x);
+		a.x * b.y - a.y * b.x
+	);
 }
 
 /*
@@ -110,7 +109,10 @@ typedef struct
  *	Sphere intersection
  */
 double
-sphereIntersect(const Sphere *  s, const Ray *  r)
+sphereIntersect(
+	const Sphere *	s,
+	const Ray *	r
+)
 {
 	Vec		op = vecSub(s->position, r->origin);
 	double		b = vecDot(op, r->direction);
@@ -125,24 +127,26 @@ sphereIntersect(const Sphere *  s, const Ray *  r)
 
 	det = sqrt(det);
 	t = b - det;
+
 	if (t > eps)
 	{
 		return t;
 	}
+
 	t = b + det;
 
 	return (t > eps) ? t : 0;
 }
 
 /*
- *	Scene (light source is the last sphere)
+ *	Scene (light source is last sphere)
  */
-Sphere spheres[] =
+Sphere	spheres[] =
 {
 	{1e5, { 1e5 + 1, 40.8, 81.6}, {0, 0, 0}, {.75, .25, .25}, kReflDiff},	/* Left */
 	{1e5, {-1e5 + 99, 40.8, 81.6}, {0, 0, 0}, {.25, .25, .75}, kReflDiff},	/* Right */
 	{1e5, {50, 40.8,  1e5},        {0, 0, 0}, {.75, .75, .75}, kReflDiff},	/* Back */
-	{1e5, {50, 40.8, -1e5 + 170},  {0, 0, 0}, {0, 0, 0},      kReflDiff},	/* Front */
+	{1e5, {50, 40.8, -1e5 + 170},  {0, 0, 0}, {0, 0, 0},       kReflDiff},	/* Front */
 	{1e5, {50,  1e5, 81.6},        {0, 0, 0}, {.75, .75, .75}, kReflDiff},	/* Bottom */
 	{1e5, {50, -1e5 + 81.6, 81.6}, {0, 0, 0}, {.75, .75, .75}, kReflDiff},	/* Top */
 	{16.5,{27, 16.5, 47},          {0, 0, 0}, {0.999, 0.999, 0.999}, kReflSpec},	/* Mirror */
@@ -166,16 +170,20 @@ toInt(double x)
 }
 
 /*
- *	Intersect all spheres
+ *	Find first sphere intersection (if any)
  */
 bool
-intersect(const Ray *  r, double *  t, int *  id)
+intersect(
+	const Ray *	r,
+	double *	t,
+	int *	id
+)
 {
 	double		n = sizeof(spheres) / sizeof(Sphere);
 	double		d;
-	double		inf = *t = 1e20;
 	int		ii;
 
+	*t = 1e20;
 	*id = -1;
 
 	for (ii = 0; ii < (int)n; ii++)
@@ -191,58 +199,83 @@ intersect(const Ray *  r, double *  t, int *  id)
 }
 
 /*
- *	Generate random number in [0,1)
+ *	Random number generator
  */
 static inline double
-rnd(unsigned short *  Xi)
+rnd(unsigned short *	Xi)
 {
 	return erand48(Xi);
 }
 
 /*
- *	Apply colour jitter using UxHw uniform within ±0.05
+ *	Initialise RGB jitter (assuming independent jitter 
+ *	distributions for each surface, same distributions 
+ * 	for each surface)
  */
 static double jitterR[sizeof(spheres)/sizeof(Sphere)];
 static double jitterG[sizeof(spheres)/sizeof(Sphere)];
 static double jitterB[sizeof(spheres)/sizeof(Sphere)];
 
+/*
+ *	Initialize jitter
+ */
 static inline void
 initJitter()
 {
-    int n = sizeof(spheres) / sizeof(Sphere);
-    for (int i = 0; i < n; i++) {
-        if (spheres[i].refl == kReflDiff) {
-            jitterR[i] = UxHwDoubleUniformDist(-0.05, 0.05);
-            jitterG[i] = UxHwDoubleUniformDist(-0.05, 0.05);
-            jitterB[i] = UxHwDoubleUniformDist(-0.05, 0.05);
-        } else {
-            jitterR[i] = jitterG[i] = jitterB[i] = 0.0; // no jitter
-        }
-    }
-}
+	int	ii;
+	int	n = sizeof(spheres) / sizeof(Sphere);
 
-static inline Vec
-jitterColour(Vec c, int id)
-{
-    return vecNew(c.x + jitterR[id],
-                  c.y + jitterG[id],
-                  c.z + jitterB[id]);
+	for (ii = 0; ii < n; ii++)
+	{
+		if (spheres[ii].refl == kReflDiff)
+		{
+			jitterR[ii] = UxHwDoubleUniformDist(-0.05, 0.05);
+			jitterG[ii] = UxHwDoubleUniformDist(-0.05, 0.05);
+			jitterB[ii] = UxHwDoubleUniformDist(-0.05, 0.05);
+		}
+		else
+		{
+			jitterR[ii] = jitterG[ii] = jitterB[ii] = 0.0;
+		}
+	}
 }
 
 /*
- *	Apply small realistic light jitter ±0.02 (2% fluctuations)
+ *	Define jitter function (use same distribution within surface)
  */
 static inline Vec
-jitterLight(Vec c, unsigned short *  Xi)
+jitterColour(
+	Vec	c,
+	int	id
+)
+{
+	return vecNew(c.x + jitterR[id],
+		      c.y + jitterG[id],
+		      c.z + jitterB[id]);
+}
+
+/*
+ *	Apply small realistic light jitter (2% fluctuations)
+ */
+static inline Vec
+jitterLight(
+	Vec	c,
+	unsigned short *	Xi
+)
 {
 	return vecScale(c, 1.0 + (rnd(Xi) * 0.04 - 0.02));
 }
 
 /*
- *  Radiance
+ *	Radiance - core path tracing function, returns RGB radiance 
+ *	along ray recursively.
  */
 Vec
-radiance(Ray r, int depth, unsigned short *  Xi)
+radiance(
+	Ray	r,
+	int	depth,
+	unsigned short *	Xi
+)
 {
 	double		t;
 	int		id = 0;
@@ -268,20 +301,24 @@ radiance(Ray r, int depth, unsigned short *  Xi)
 		f = jitterColour(f, id);
 	}
 
-	/*
+/*
 	 *	Emission:
 	 *	- Apply jitter only for designated light source
 	 */
 	Vec		emission = obj->emission;
-	if (id == (sizeof(spheres) / sizeof(Sphere)) - 1)
+	if (id == (sizeof(spheres)/sizeof(Sphere)) - 1)
 	{
 		emission = jitterLight(emission, Xi);
 	}
 
 	/*
-	 *	Russian roulette
+	 *	Russian roulette - randomly terminate after depth 5
 	 */
-	double		p = f.x > f.y && f.x > f.z ? f.x : (f.y > f.z ? f.y : f.z);
+
+	double		px = UxHwDoubleNthMoment(f.x, 1);
+	double		py = UxHwDoubleNthMoment(f.y, 1);
+	double		pz = UxHwDoubleNthMoment(f.z, 1);
+	double		p = px > py && px > pz ? px : (py > pz ? py : pz);
 
 	if (++depth > 5)
 	{
@@ -295,149 +332,138 @@ radiance(Ray r, int depth, unsigned short *  Xi)
 		}
 	}
 
-	/*
-	 *	Reflection models
-	 */
+	/* Diffuse */
 	if (obj->refl == kReflDiff)
 	{
 		double		r1 = 2 * M_PI * rnd(Xi);
 		double		r2 = rnd(Xi);
 		double		r2s = sqrt(r2);
 		Vec		w = nl;
-		Vec		u = vecNorm(vecCross(fabs(w.x) > .1 ? vecNew(0, 1, 0) : vecNew(1, 0, 0), w));
+		Vec		u = vecNorm(vecCross(fabs(w.x) > .1 ? vecNew(0,1,0) : vecNew(1,0,0), w));
 		Vec		v = vecCross(w, u);
-		Vec		d = vecNorm(vecAdd(
-					vecAdd(vecScale(u, cos(r1) * r2s),
+		Vec		d = vecNorm(vecAdd(vecAdd(vecScale(u, cos(r1) * r2s),
 						vecScale(v, sin(r1) * r2s)),
-					vecScale(w, sqrt(1 - r2))));
+					vecScale(w, sqrt(1-r2))));
 
-		return vecAdd(emission, vecMult(f, radiance((Ray) {x, d}, depth, Xi)));
+		return vecAdd(emission, vecMult(f, radiance((Ray){x, d}, depth, Xi)));
 	}
+	/* Specular */
 	else if (obj->refl == kReflSpec)
 	{
 		Vec		reflDir = vecSub(r.direction, vecScale(n, 2 * vecDot(n, r.direction)));
-
-		return vecAdd(emission, vecMult(f, radiance((Ray) {x, reflDir}, depth, Xi)));
+		return vecAdd(emission, vecMult(f, radiance((Ray){x, reflDir}, depth, Xi)));
 	}
 
-	/*
-	 *	Refraction
-	 */
-	Ray		reflRay = {x, vecSub(r.direction, vecScale(n, 2 * vecDot(n, r.direction)))};
+	/* Refraction - Snell's law and Fresnel effects */
+	Ray		reflRay = {x, vecSub(r.direction, vecScale(n, 2*vecDot(n, r.direction)))};
 	bool		into = vecDot(n, nl) > 0;
 	double		nc = 1;
 	double		nt = 1.5;
-	double		nnt = into ? nc / nt : nt / nc;
+	double		nnt = into ? nc/nt : nt/nc;
 	double		ddn = vecDot(r.direction, nl);
 	double		cos2t;
 
-	if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)
+	if ((cos2t = 1 - nnt*nnt*(1 - ddn*ddn)) < 0)
 	{
 		return vecAdd(emission, vecMult(f, radiance(reflRay, depth, Xi)));
 	}
 
-	Vec		tdir = vecNorm(vecSub(
-				vecScale(r.direction, nnt),
-				vecScale(n, (into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))));
+	Vec		tdir = vecNorm(vecSub(vecScale(r.direction, nnt),
+					vecScale(n, (into ? 1 : -1)*(ddn*nnt + sqrt(cos2t)))));
 	double		a = nt - nc;
 	double		b = nt + nc;
-	double		R0 = a * a / (b * b);
-	double		c = 1 - (into ? -ddn : vecDot(tdir, n));
-	double		Re = R0 + (1 - R0) * pow(c, 5);
+	double		R0 = a*a/(b*b);
+	double		cVal = 1 - (into ? -ddn : vecDot(tdir,n));
+	double		Re = R0 + (1 - R0) * pow(cVal, 5);
 	double		Tr = 1 - Re;
-	double		P = .25 + .5 * Re;
-	double		RP = Re / P;
-	double		TP = Tr / (1 - P);
+	double		P = .25 + .5*Re;
+	double		RP = Re/P;
+	double		TP = Tr/(1-P);
 
 	if (depth > 2)
 	{
 		return vecAdd(emission, vecMult(f,
-			rnd(Xi) < P
-				? vecScale(radiance(reflRay, depth, Xi), RP)
-				: vecScale(radiance((Ray) {x, tdir}, depth, Xi), TP)));
+				rnd(Xi) < P
+					? vecScale(radiance(reflRay, depth, Xi), RP)
+					: vecScale(radiance((Ray){x, tdir}, depth, Xi), TP)));
 	}
 	else
 	{
 		return vecAdd(emission, vecMult(f,
-			vecAdd(vecScale(radiance(reflRay, depth, Xi), Re),
-				vecScale(radiance((Ray) {x, tdir}, depth, Xi), Tr))));
+				vecAdd(vecScale(radiance(reflRay, depth, Xi), Re),
+				       vecScale(radiance((Ray){x, tdir}, depth, Xi), Tr))));
 	}
 }
 
-
 /*
- *	Main
+ *	Main - sets up image and loops over rows. Splits into subpixel for 
+ *	anti-aliasing, loops over samples for Monte Carlo rays, accumulates
+ *	radiance per subpixel
  */
 int
-main(int argc, char *argv[])
+main(int argc, char *	argv[])
 {
-	int		width = 1024;
-	int		height = 768;
-	int		samples = (argc >= 2) ? atoi(argv[1]) / 4 : 1;
-	bool		preview = (argc >= 3 && 
-				    (strcmp(argv[2], "--preview") == 0 || 
-				     strcmp(argv[2], "-p") == 0));
+	int	width = 1024;
+	int	height = 768;
+	int	samples = (argc >= 2) ? atoi(argv[1])/4 : 1;
+	bool	preview = (argc >= 3 &&
+			(strcmp(argv[2], "--preview")==0 || strcmp(argv[2], "-p")==0));
 
-	// Preview crops: render only the central quarter of the image
-	int startY = 0, endY = height;
-	int startX = 0, endX = width;
+	int	startY = 0;
+	int	endY = height;
+	int	startX = 0;
+	int	endX = width;
+
 	if (preview)
 	{
-		startY = height / 4;
-		endY   = 3 * height / 4;
-		startX = width / 4;
-		endX   = 3 * width / 4;
+		startY = height/4;
+		endY   = 3*height/4;
+		startX = width/4;
+		endX   = 3*width/4;
 	}
 
-	Ray		cam = {vecNew(50, 52, 295.6), vecNorm(vecNew(0, -0.042612, -1))};
-	Vec		cx = vecNew(width * .5135 / height, 0, 0);
-	Vec		cy = vecScale(vecNorm(vecCross(cx, cam.direction)), .5135);
-	Vec *		c = calloc(width * height, sizeof(Vec));
+	Ray	cam = {vecNew(50,52,295.6), vecNorm(vecNew(0,-0.042612,-1))};
+	Vec	cx = vecNew(width*.5135/height, 0, 0);
+	Vec	cy = vecScale(vecNorm(vecCross(cx, cam.direction)), .5135);
+	Vec *	c = calloc(width*height, sizeof(Vec));
 
 	initJitter();
 
 	#pragma omp parallel for schedule(dynamic,1)
 	for (int yy = startY; yy < endY; yy++)
 	{
-		fprintf(stderr, "\rRendering %d spp %5.2f%%", samples * 4,
-		        100. * (yy - startY) / (endY - startY - 1));
-		unsigned short	Xi[3] = {0, 0, (unsigned short)(yy * yy * yy)};
+		fprintf(stderr,"\rRendering %d spp %5.2f%%", samples*4,
+			100.*(yy-startY)/(endY-startY-1));
+		unsigned short	Xi[3] = {0,0,(unsigned short)(yy*yy*yy)};
 
 		for (int xx = startX; xx < endX; xx++)
 		{
-			int		ii = (height - yy - 1) * width + xx;
-			Vec		r = vecNew(0, 0, 0);
+			int	ii = (height-yy-1)*width + xx;
+			Vec	r = vecNew(0,0,0);
 
-			for (int sy = 0; sy < 2; sy++)
+			for (int sy=0; sy<2; sy++)
 			{
-				for (int sx = 0; sx < 2; sx++)
+				for (int sx=0; sx<2; sx++)
 				{
-					Vec		sub = vecNew(0, 0, 0);
+					Vec	sub = vecNew(0,0,0);
 
-					for (int ss = 0; ss < samples; ss++)
+					for (int ss=0; ss<samples; ss++)
 					{
-						double		r1 = 2 * rnd(Xi);
-						double		dx = r1 < 1 ? sqrt(r1) - 1 : 1 - sqrt(2 - r1);
-						double		r2 = 2 * rnd(Xi);
-						double		dy = r2 < 1 ? sqrt(r2) - 1 : 1 - sqrt(2 - r2);
-						Vec		d = vecAdd(
-								vecAdd(
-									vecScale(cx, ((sx + .5 + dx) / 2 + xx) / width - .5),
-									vecScale(cy, ((sy + .5 + dy) / 2 + yy) / height - .5)),
+						double	r1 = 2*rnd(Xi);
+						double	dx = r1<1 ? sqrt(r1)-1 : 1-sqrt(2-r1);
+						double	r2 = 2*rnd(Xi);
+						double	dy = r2<1 ? sqrt(r2)-1 : 1-sqrt(2-r2);
+						Vec	d = vecAdd(vecAdd(
+									vecScale(cx, ((sx+.5+dx)/2 + xx)/width - .5),
+									vecScale(cy, ((sy+.5+dy)/2 + yy)/height - .5)),
 								cam.direction);
-						Ray		ray = {vecAdd(cam.origin, vecScale(d, 140)), vecNorm(d)};
-						Vec		rad = radiance(ray, 0, Xi);
+						Ray	ray = {vecAdd(cam.origin, vecScale(d,140)), vecNorm(d)};
+						Vec	rad = radiance(ray,0,Xi);
 
-						// Apply small light jitter only if hitting light
-						if (ii == width * height - 1)
-						{
-							rad = jitterLight(rad, Xi);
-						}
-
-						sub = vecAdd(sub, vecScale(rad, 1.0 / samples));
+						sub = vecAdd(sub, vecScale(rad, 1.0/samples));
 					}
 
-					r = vecAdd(r, vecScale(vecNew(clamp(sub.x), clamp(sub.y), clamp(sub.z)), .25));
+					r = vecAdd(r, vecScale(sub, .25));
 				}
 			}
 
@@ -445,19 +471,27 @@ main(int argc, char *argv[])
 		}
 	}
 
-	FILE *	f = fopen("mountDir/image.ppm", "w");
-	fprintf(f, "P3\n%d %d\n%d\n", width, height, 255);
+	FILE *f = fopen("mountDir/image.ppm", "w");
+	fprintf(f,"P3\n%d %d\n%d\n", width, height, 255);
 
-	for (int ii = 0; ii < width * height; ii++)
+	for (int ii=0; ii<width*height; ii++)
 	{
-		fprintf(f, "%d %d %d ",
-			toInt(c[ii].x),
-			toInt(c[ii].y),
-			toInt(c[ii].z));
+		double mx = UxHwDoubleNthMoment(c[ii].x,1);
+		double my = UxHwDoubleNthMoment(c[ii].y,1);
+		double mz = UxHwDoubleNthMoment(c[ii].z,1);
+
+		if (mx<0) mx=0; else if (mx>1) mx=1;
+		if (my<0) my=0; else if (my>1) my=1;
+		if (mz<0) mz=0; else if (mz>1) mz=1;
+
+		int r = (int)(pow(mx,1/2.2)*255+.5);
+		int g = (int)(pow(my,1/2.2)*255+.5);
+		int b = (int)(pow(mz,1/2.2)*255+.5);
+
+		fprintf(f,"%d %d %d ", r,g,b);
 	}
 
 	free(c);
 
 	return 0;
 }
-
