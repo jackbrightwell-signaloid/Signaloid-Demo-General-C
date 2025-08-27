@@ -272,128 +272,155 @@ jitterLight(
  */
 Vec
 radiance(
-	Ray	r,
-	int	depth,
-	unsigned short *	Xi
+    Ray r,
+    int depth,
+    unsigned short * Xi
 )
 {
-	double		t;
-	int		id = 0;
+    double t;
+    int id = 0;
 
-	if (!intersect(&r, &t, &id))
-	{
-		return vecNew(0, 0, 0);
-	}
+    if (!intersect(&r, &t, &id))
+    {
+        return vecNew(0, 0, 0);
+    }
 
-	const Sphere *	obj = &spheres[id];
-	Vec		x = vecAdd(r.origin, vecScale(r.direction, t));
-	Vec		n = vecNorm(vecSub(x, obj->position));
-	Vec		nl = vecDot(n, r.direction) < 0 ? n : vecScale(n, -1);
+    const Sphere * obj = &spheres[id];
+    Vec x = vecAdd(r.origin, vecScale(r.direction, t));
+    Vec n = vecNorm(vecSub(x, obj->position));
+    Vec nl = vecDot(n, r.direction) < 0 ? n : vecScale(n, -1);
 
-	/*
-	 *	Surface colour:
-	 *	- Diffuse: apply jitter
-	 *	- Specular/Refractive/Light: no jitter
-	 */
-	Vec		f = obj->colour;
-	if (obj->refl == kReflDiff)
-	{
-		f = jitterColour(f, id);
-	}
+    /* Surface colour */
+    Vec f = obj->colour;
+    if (obj->refl == kReflDiff)
+    {
+        f = jitterColour(f, id);
+    }
 
-/*
-	 *	Emission:
-	 *	- Apply jitter only for designated light source
-	 */
-	Vec		emission = obj->emission;
-	if (id == (sizeof(spheres)/sizeof(Sphere)) - 1)
-	{
-		emission = jitterLight(emission, Xi);
-	}
+    /* Emission (light source jitter) */
+    Vec emission = obj->emission;
+    if (id == (sizeof(spheres)/sizeof(Sphere)) - 1)
+    {
+        emission = jitterLight(emission, Xi);
+    }
 
-	/*
-	 *	Russian roulette - randomly terminate after depth 5
-	 */
+    /* Russian roulette */
+    double px = UxHwDoubleNthMoment(f.x, 1);
+    double py = UxHwDoubleNthMoment(f.y, 1);
+    double pz = UxHwDoubleNthMoment(f.z, 1);
+    double p = px > py && px > pz ? px : (py > pz ? py : pz);
 
-	double		px = UxHwDoubleNthMoment(f.x, 1);
-	double		py = UxHwDoubleNthMoment(f.y, 1);
-	double		pz = UxHwDoubleNthMoment(f.z, 1);
-	double		p = px > py && px > pz ? px : (py > pz ? py : pz);
+    if (++depth > 5)
+    {
+        if (rnd(Xi) < p)
+        {
+            f = vecScale(f, 1 / p);
+        }
+        else
+        {
+            return emission;
+        }
+    }
 
-	if (++depth > 5)
-	{
-		if (rnd(Xi) < p)
-		{
-			f = vecScale(f, 1 / p);
-		}
-		else
-		{
-			return emission;
-		}
-	}
+    /* Diffuse */
+    if (obj->refl == kReflDiff)
+    {
+        double r1 = 2 * M_PI * rnd(Xi);
+        double r2 = rnd(Xi);
+        double r2s = sqrt(r2);
+        Vec w = nl;
+        Vec u = vecNorm(vecCross(fabs(w.x) > .1 ? vecNew(0,1,0) : vecNew(1,0,0), w));
+        Vec v = vecCross(w, u);
+        Vec d = vecNorm(vecAdd(vecAdd(vecScale(u, cos(r1)*r2s),
+                                     vecScale(v, sin(r1)*r2s)),
+                               vecScale(w, sqrt(1-r2))));
 
-	/* Diffuse */
-	if (obj->refl == kReflDiff)
-	{
-		double		r1 = 2 * M_PI * rnd(Xi);
-		double		r2 = rnd(Xi);
-		double		r2s = sqrt(r2);
-		Vec		w = nl;
-		Vec		u = vecNorm(vecCross(fabs(w.x) > .1 ? vecNew(0,1,0) : vecNew(1,0,0), w));
-		Vec		v = vecCross(w, u);
-		Vec		d = vecNorm(vecAdd(vecAdd(vecScale(u, cos(r1) * r2s),
-						vecScale(v, sin(r1) * r2s)),
-					vecScale(w, sqrt(1-r2))));
+        /* Collapse the recursive radiance before combining */
+        Vec subRad = radiance((Ray){x, d}, depth, Xi);
+        subRad.x = UxHwDoubleNthMoment(subRad.x, 1);
+        subRad.y = UxHwDoubleNthMoment(subRad.y, 1);
+        subRad.z = UxHwDoubleNthMoment(subRad.z, 1);
 
-		return vecAdd(emission, vecMult(f, radiance((Ray){x, d}, depth, Xi)));
-	}
-	/* Specular */
-	else if (obj->refl == kReflSpec)
-	{
-		Vec		reflDir = vecSub(r.direction, vecScale(n, 2 * vecDot(n, r.direction)));
-		return vecAdd(emission, vecMult(f, radiance((Ray){x, reflDir}, depth, Xi)));
-	}
+        return vecAdd(emission, vecMult(f, subRad));
+    }
 
-	/* Refraction - Snell's law and Fresnel effects */
-	Ray		reflRay = {x, vecSub(r.direction, vecScale(n, 2*vecDot(n, r.direction)))};
-	bool		into = vecDot(n, nl) > 0;
-	double		nc = 1;
-	double		nt = 1.5;
-	double		nnt = into ? nc/nt : nt/nc;
-	double		ddn = vecDot(r.direction, nl);
-	double		cos2t;
+    /* Specular */
+    else if (obj->refl == kReflSpec)
+    {
+        Vec reflDir = vecSub(r.direction, vecScale(n, 2*vecDot(n,r.direction)));
 
-	if ((cos2t = 1 - nnt*nnt*(1 - ddn*ddn)) < 0)
-	{
-		return vecAdd(emission, vecMult(f, radiance(reflRay, depth, Xi)));
-	}
+        Vec subRad = radiance((Ray){x, reflDir}, depth, Xi);
+        subRad.x = UxHwDoubleNthMoment(subRad.x, 1);
+        subRad.y = UxHwDoubleNthMoment(subRad.y, 1);
+        subRad.z = UxHwDoubleNthMoment(subRad.z, 1);
 
-	Vec		tdir = vecNorm(vecSub(vecScale(r.direction, nnt),
-					vecScale(n, (into ? 1 : -1)*(ddn*nnt + sqrt(cos2t)))));
-	double		a = nt - nc;
-	double		b = nt + nc;
-	double		R0 = a*a/(b*b);
-	double		cVal = 1 - (into ? -ddn : vecDot(tdir,n));
-	double		Re = R0 + (1 - R0) * pow(cVal, 5);
-	double		Tr = 1 - Re;
-	double		P = .25 + .5*Re;
-	double		RP = Re/P;
-	double		TP = Tr/(1-P);
+        return vecAdd(emission, vecMult(f, subRad));
+    }
 
-	if (depth > 2)
-	{
-		return vecAdd(emission, vecMult(f,
-				rnd(Xi) < P
-					? vecScale(radiance(reflRay, depth, Xi), RP)
-					: vecScale(radiance((Ray){x, tdir}, depth, Xi), TP)));
-	}
-	else
-	{
-		return vecAdd(emission, vecMult(f,
-				vecAdd(vecScale(radiance(reflRay, depth, Xi), Re),
-				       vecScale(radiance((Ray){x, tdir}, depth, Xi), Tr))));
-	}
+    /* Refraction */
+    Ray reflRay = {x, vecSub(r.direction, vecScale(n, 2*vecDot(n,r.direction)))};
+    bool into = vecDot(n, nl) > 0;
+    double nc = 1;
+    double nt = 1.5;
+    double nnt = into ? nc/nt : nt/nc;
+    double ddn = vecDot(r.direction, nl);
+    double cos2t;
+
+    if ((cos2t = 1 - nnt*nnt*(1 - ddn*ddn)) < 0)
+    {
+        Vec subRad = radiance(reflRay, depth, Xi);
+        subRad.x = UxHwDoubleNthMoment(subRad.x, 1);
+        subRad.y = UxHwDoubleNthMoment(subRad.y, 1);
+        subRad.z = UxHwDoubleNthMoment(subRad.z, 1);
+
+        return vecAdd(emission, vecMult(f, subRad));
+    }
+
+    Vec tdir = vecNorm(vecSub(vecScale(r.direction,nnt),
+                              vecScale(n,(into?1:-1)*(ddn*nnt + sqrt(cos2t)))));
+    double a = nt - nc;
+    double b = nt + nc;
+    double R0 = a*a/(b*b);
+    double cVal = 1 - (into ? -ddn : vecDot(tdir,n));
+    double Re = R0 + (1 - R0) * pow(cVal, 5);
+    double Tr = 1 - Re;
+    double P = .25 + .5*Re;
+    double RP = Re/P;
+    double TP = Tr/(1-P);
+
+    if (depth > 2)
+    {
+        Vec subRad;
+        if (rnd(Xi) < P)
+            subRad = vecScale(radiance(reflRay, depth, Xi), RP);
+        else
+            subRad = vecScale(radiance((Ray){x, tdir}, depth, Xi), TP);
+
+        /* Collapse after recursion */
+        subRad.x = UxHwDoubleNthMoment(subRad.x, 1);
+        subRad.y = UxHwDoubleNthMoment(subRad.y, 1);
+        subRad.z = UxHwDoubleNthMoment(subRad.z, 1);
+
+        return vecAdd(emission, vecMult(f, subRad));
+    }
+    else
+    {
+        Vec subRad1 = vecScale(radiance(reflRay, depth, Xi), Re);
+        Vec subRad2 = vecScale(radiance((Ray){x, tdir}, depth, Xi), Tr);
+
+        /* Collapse both contributions */
+        subRad1.x = UxHwDoubleNthMoment(subRad1.x, 1);
+        subRad1.y = UxHwDoubleNthMoment(subRad1.y, 1);
+        subRad1.z = UxHwDoubleNthMoment(subRad1.z, 1);
+
+        subRad2.x = UxHwDoubleNthMoment(subRad2.x, 1);
+        subRad2.y = UxHwDoubleNthMoment(subRad2.y, 1);
+        subRad2.z = UxHwDoubleNthMoment(subRad2.z, 1);
+
+        return vecAdd(emission, vecMult(f, vecAdd(subRad1, subRad2)));
+    }
 }
+
 
 /*
  *	Main - sets up image and loops over rows. Splits into subpixel for 
