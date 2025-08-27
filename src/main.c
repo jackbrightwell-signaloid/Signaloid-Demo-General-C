@@ -276,71 +276,74 @@ Vec radiance(Ray r, int depth, unsigned short *Xi)
     int id = 0;
 
     if (!intersect(&r, &t, &id))
-        return vecNew(0, 0, 0);
+        return vecNew(0,0,0);
 
     const Sphere *obj = &spheres[id];
     Vec x = vecAdd(r.origin, vecScale(r.direction, t));
     Vec n = vecNorm(vecSub(x, obj->position));
-    Vec nl = vecDot(n, r.direction) < 0 ? n : vecScale(n, -1);
+    Vec nl = vecDot(n, r.direction) < 0 ? n : vecScale(n,-1);
 
-    // Apply distributional RGB jitter at this hit only
     Vec f = obj->colour;
+    Vec fJitter = f;
+
+    // Apply RGB jitter only at this hit
     if (obj->refl == kReflDiff)
-        f = jitterColour(f, id);
+        fJitter = jitterColour(f, id);
 
     Vec emission = obj->emission;
     if (id == (sizeof(spheres)/sizeof(Sphere)) - 1)
         emission = jitterLight(emission, Xi);
 
-    // Collapse distributional RGB to mean before recursion
+    // Collapse immediately for recursion
     if (obj->refl == kReflDiff) {
-        f.x = UxHwDoubleNthMoment(f.x, 1);
-        f.y = UxHwDoubleNthMoment(f.y, 1);
-        f.z = UxHwDoubleNthMoment(f.z, 1);
+        f.x = UxHwDoubleNthMoment(fJitter.x,1);
+        f.y = UxHwDoubleNthMoment(fJitter.y,1);
+        f.z = UxHwDoubleNthMoment(fJitter.z,1);
     }
 
-    // Russian roulette termination
+    // Russian roulette
     double p = f.x > f.y && f.x > f.z ? f.x : (f.y > f.z ? f.y : f.z);
     if (++depth > 5) {
         if (rnd(Xi) < p) f = vecScale(f, 1/p);
         else return emission;
     }
 
-    // Diffuse reflection
+    // Diffuse
     if (obj->refl == kReflDiff) {
-        double r1 = 2 * M_PI * rnd(Xi);
+        double r1 = 2*M_PI*rnd(Xi);
         double r2 = rnd(Xi), r2s = sqrt(r2);
         Vec w = nl;
-        Vec u = vecNorm(vecCross(fabs(w.x) > .1 ? vecNew(0,1,0) : vecNew(1,0,0), w));
+        Vec u = vecNorm(vecCross(fabs(w.x) > 0.1 ? vecNew(0,1,0) : vecNew(1,0,0), w));
         Vec v = vecCross(w,u);
         Vec d = vecNorm(vecAdd(vecAdd(vecScale(u, cos(r1)*r2s),
                                      vecScale(v, sin(r1)*r2s)),
                                vecScale(w, sqrt(1-r2))));
-        return vecAdd(emission, vecMult(f, radiance((Ray){x,d}, depth, Xi)));
+        // Use jittered color only for local emission, recursion uses collapsed mean
+        return vecAdd(emission, vecMult(f, radiance((Ray){x,d}, depth,Xi)));
     }
 
-    // Specular reflection
+    // Specular
     else if (obj->refl == kReflSpec) {
-        Vec reflDir = vecSub(r.direction, vecScale(n, 2*vecDot(n, r.direction)));
-        return vecAdd(emission, vecMult(f, radiance((Ray){x,reflDir}, depth, Xi)));
+        Vec reflDir = vecSub(r.direction, vecScale(n, 2*vecDot(n,r.direction)));
+        return vecAdd(emission, vecMult(f, radiance((Ray){x,reflDir},depth,Xi)));
     }
 
     // Refraction
-    Ray reflRay = {x, vecSub(r.direction, vecScale(n, 2*vecDot(n, r.direction)))};
+    Ray reflRay = {x, vecSub(r.direction, vecScale(n, 2*vecDot(n,r.direction)))};
     bool into = vecDot(n, nl) > 0;
     double nc=1, nt=1.5, nnt = into ? nc/nt : nt/nc;
     double ddn = vecDot(r.direction, nl);
     double cos2t;
     if ((cos2t = 1 - nnt*nnt*(1 - ddn*ddn)) < 0)
-        return vecAdd(emission, vecMult(f, radiance(reflRay, depth, Xi)));
+        return vecAdd(emission, vecMult(f, radiance(reflRay,depth,Xi)));
 
     Vec tdir = vecNorm(vecSub(vecScale(r.direction,nnt),
                               vecScale(n,(into?1:-1)*(ddn*nnt+sqrt(cos2t)))));
     double a=nt-nc, b=nt+nc, R0=a*a/(b*b);
-    double cVal = 1 - (into ? -ddn : vecDot(tdir,n));
+    double cVal = 1 - (into?-ddn:vecDot(tdir,n));
     double Re = R0 + (1-R0)*pow(cVal,5);
     double Tr = 1-Re;
-    double P = .25+.5*Re, RP = Re/P, TP = Tr/(1-P);
+    double P = 0.25+0.5*Re, RP = Re/P, TP = Tr/(1-P);
 
     if (depth>2)
         return vecAdd(emission, vecMult(f,
@@ -351,9 +354,6 @@ Vec radiance(Ray r, int depth, unsigned short *Xi)
                     vecAdd(vecScale(radiance(reflRay,depth,Xi),Re),
                            vecScale(radiance((Ray){x,tdir},depth,Xi),Tr))));
 }
-
-
-
 
 /*
  *	Main - sets up image and loops over rows. Splits into subpixel for 
