@@ -270,7 +270,7 @@ jitterLight(
  *	Radiance - core path tracing function, returns RGB radiance 
  *	along ray recursively.
  */
-Vec radiance(Ray r, int depth, unsigned short *Xi)
+Vec radiance(Ray r, int depth, unsigned short *Xi, int bounce)
 {
     double t;
     int id = 0;
@@ -294,11 +294,16 @@ Vec radiance(Ray r, int depth, unsigned short *Xi)
     if (id == (sizeof(spheres)/sizeof(Sphere)) - 1)
         emission = jitterLight(emission, Xi);
 
-    // Collapse immediately for recursion
-    if (obj->refl == kReflDiff) {
+    // Determine if we collapse now or propagate distribution
+    bool propagateDistribution = (obj->refl == kReflDiff) && (bounce < 2);
+
+    if (!propagateDistribution) {
+        // Collapse for further recursion
         f.x = UxHwDoubleNthMoment(fJitter.x,1);
         f.y = UxHwDoubleNthMoment(fJitter.y,1);
         f.z = UxHwDoubleNthMoment(fJitter.z,1);
+    } else {
+        f = fJitter;  // propagate distribution one more bounce
     }
 
     // Russian roulette
@@ -308,8 +313,8 @@ Vec radiance(Ray r, int depth, unsigned short *Xi)
         else return emission;
     }
 
-    // Diffuse
     if (obj->refl == kReflDiff) {
+        // Diffuse bounce
         double r1 = 2*M_PI*rnd(Xi);
         double r2 = rnd(Xi), r2s = sqrt(r2);
         Vec w = nl;
@@ -318,42 +323,42 @@ Vec radiance(Ray r, int depth, unsigned short *Xi)
         Vec d = vecNorm(vecAdd(vecAdd(vecScale(u, cos(r1)*r2s),
                                      vecScale(v, sin(r1)*r2s)),
                                vecScale(w, sqrt(1-r2))));
-        // Use jittered color only for local emission, recursion uses collapsed mean
-        return vecAdd(emission, vecMult(f, radiance((Ray){x,d}, depth,Xi)));
+        return vecAdd(emission, vecMult(f, radiance((Ray){x,d}, depth,Xi, bounce + 1)));
     }
 
-    // Specular
     else if (obj->refl == kReflSpec) {
         Vec reflDir = vecSub(r.direction, vecScale(n, 2*vecDot(n,r.direction)));
-        return vecAdd(emission, vecMult(f, radiance((Ray){x,reflDir},depth,Xi)));
+        return vecAdd(emission, vecMult(f, radiance((Ray){x,reflDir},depth,Xi,bounce)));
     }
 
-    // Refraction
-    Ray reflRay = {x, vecSub(r.direction, vecScale(n, 2*vecDot(n,r.direction)))};
-    bool into = vecDot(n, nl) > 0;
-    double nc=1, nt=1.5, nnt = into ? nc/nt : nt/nc;
-    double ddn = vecDot(r.direction, nl);
-    double cos2t;
-    if ((cos2t = 1 - nnt*nnt*(1 - ddn*ddn)) < 0)
-        return vecAdd(emission, vecMult(f, radiance(reflRay,depth,Xi)));
+    else { // refractive
+        Ray reflRay = {x, vecSub(r.direction, vecScale(n, 2*vecDot(n,r.direction)))};
+        bool into = vecDot(n, nl) > 0;
+        double nc=1, nt=1.5, nnt = into ? nc/nt : nt/nc;
+        double ddn = vecDot(r.direction, nl);
+        double cos2t;
+        if ((cos2t = 1 - nnt*nnt*(1 - ddn*ddn)) < 0)
+            return vecAdd(emission, vecMult(f, radiance(reflRay,depth,Xi,bounce)));
 
-    Vec tdir = vecNorm(vecSub(vecScale(r.direction,nnt),
-                              vecScale(n,(into?1:-1)*(ddn*nnt+sqrt(cos2t)))));
-    double a=nt-nc, b=nt+nc, R0=a*a/(b*b);
-    double cVal = 1 - (into?-ddn:vecDot(tdir,n));
-    double Re = R0 + (1-R0)*pow(cVal,5);
-    double Tr = 1-Re;
-    double P = 0.25+0.5*Re, RP = Re/P, TP = Tr/(1-P);
+        Vec tdir = vecNorm(vecSub(vecScale(r.direction,nnt),
+                                  vecScale(n,(into?1:-1)*(ddn*nnt+sqrt(cos2t)))));
+        double a=nt-nc, b=nt+nc, R0=a*a/(b*b);
+        double cVal = 1 - (into?-ddn:vecDot(tdir,n));
+        double Re = R0 + (1-R0)*pow(cVal,5);
+        double Tr = 1-Re;
+        double P = 0.25+0.5*Re, RP = Re/P, TP = Tr/(1-P);
 
-    if (depth>2)
-        return vecAdd(emission, vecMult(f,
-                    rnd(Xi)<P ? vecScale(radiance(reflRay,depth,Xi),RP)
-                              : vecScale(radiance((Ray){x,tdir},depth,Xi),TP)));
-    else
-        return vecAdd(emission, vecMult(f,
-                    vecAdd(vecScale(radiance(reflRay,depth,Xi),Re),
-                           vecScale(radiance((Ray){x,tdir},depth,Xi),Tr))));
+        if (depth>2)
+            return vecAdd(emission, vecMult(f,
+                        rnd(Xi)<P ? vecScale(radiance(reflRay,depth,Xi,bounce),RP)
+                                  : vecScale(radiance((Ray){x,tdir},depth,Xi,bounce),TP)));
+        else
+            return vecAdd(emission, vecMult(f,
+                        vecAdd(vecScale(radiance(reflRay,depth,Xi,bounce),Re),
+                               vecScale(radiance((Ray){x,tdir},depth,Xi,bounce),Tr))));
+    }
 }
+
 
 /*
  *	Main - sets up image and loops over rows. Splits into subpixel for 
